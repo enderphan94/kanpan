@@ -81,6 +81,10 @@ one pattern:
 - **Promote to top-level** turns a sub-task into its own card when it outgrows the
   parent — the escape valve instead of deeper nesting.
 
+### What Kanpan implemented (added v1.0.1)
+- **Finder-style surface layering** so light (and dark) mode look native, using
+  only solid semantic colors that adapt automatically.
+
 *Sources:* [Asana — subtasks](https://help.asana.com/s/article/subtasks) and
 [when to use them](https://asana.com/resources/asana-tips-subtasks);
 [Linear — parent & sub-issues](https://linear.app/docs/parent-and-sub-issues);
@@ -88,3 +92,41 @@ one pattern:
 [Atlassian — convert checklist item to card](https://community.atlassian.com/forums/Trello-questions/Converting-a-Checklist-item-automatically-to-a-card/qaq-p/1446104);
 [ClickUp — nested subtasks](https://help.clickup.com/hc/en-us/articles/6304431740055-Create-nested-subtasks);
 [Interaction Design Foundation — Progressive Disclosure](https://www.interaction-design.org/literature/topics/progressive-disclosure).
+
+---
+
+## 3. macOS light mode (Finder) colors
+
+Light mode looked "weird" because the app used the wrong system background
+colors. macOS layers a few **semantic** surfaces; using them solid (no opacity)
+makes both light and dark mode correct for free.
+
+| Role | NSColor / SwiftUI | Light | Dark |
+|---|---|---|---|
+| Window **canvas** | `windowBackgroundColor` | #ECECEC gray | #323232 |
+| **Card / content** | `controlBackgroundColor` / `.background` | #FFFFFF white | ~#1E1E1E |
+| Behind a page (**don't** use as a bg) | `underPageBackgroundColor` | ~#969696 dark gray | #282828 |
+| Hairline / border | `separatorColor` / `.quaternary` | black @ ~10% | white @ ~10% |
+| Sidebar | a **material** (`.listStyle(.sidebar)` / `NSVisualEffectView`) | translucent | translucent |
+| Text | `.primary` / `.secondary` / `.tertiary` | black @ 80/50/20% | white @ 80/50/20% |
+
+**The bug:** the board canvas used `underPageBackgroundColor` (a dark gray meant
+to sit *behind* a page) and columns used `windowBackgroundColor.opacity(0.55)`
+(applying opacity to a semantic color blends into muddy grays). HIG: *never hard
+code system color values, and choose materials by semantic role, not apparent
+color.*
+
+**The recipe (what Kanpan now does):** light-gray **canvas**
+(`windowBackgroundColor`) → faint recessed **lanes** (adaptive `primary @ 4.5%`)
+→ white **cards** (`controlBackgroundColor`) with a subtle status tint, an
+adaptive **hairline** border (`primary @ 8%`), and a soft shadow. The sidebar
+keeps `.listStyle(.sidebar)` for the translucent Finder material. Centralized in
+`Theme.canvas / .surface / .lane / .hairline`.
+
+*Sources:* Apple HIG — [Color](https://developer.apple.com/design/human-interface-guidelines/color),
+[Materials](https://developer.apple.com/design/human-interface-guidelines/materials),
+[Dark Mode](https://developer.apple.com/design/human-interface-guidelines/dark-mode);
+Apple docs — [windowBackgroundColor](https://developer.apple.com/documentation/appkit/nscolor/1528630-windowbackgroundcolor),
+[controlBackgroundColor](https://developer.apple.com/documentation/appkit/nscolor/controlbackgroundcolor),
+[underPageBackgroundColor](https://developer.apple.com/documentation/appkit/nscolor/underpagebackgroundcolor),
+[Material](https://developer.apple.com/documentation/swiftui/material).
