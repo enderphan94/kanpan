@@ -51,3 +51,21 @@ enum Theme {
 
 extension TaskStatus { var color: Color { Theme.color(for: self) } }
 extension Priority   { var color: Color { Theme.color(for: self) } }
+
+// MARK: - Finder-style surface layering
+//
+// macOS layers a light-gray *canvas* (windowBackgroundColor), white *surfaces*
+// (controlBackgroundColor) for cards/content, hairline separators, and faint
+// recessed *lanes*. Using solid semantic colors (no opacity on them) keeps both
+// light and dark mode correct automatically. `underPageBackgroundColor` is the
+// dark gray meant to sit *behind* a page — never a main background.
+extension Theme {
+    /// The window canvas the board floats on (light gray / dark gray).
+    static var canvas: Color { Color(nsColor: .windowBackgroundColor) }
+    /// Elevated card / content surface (white / near-black).
+    static var surface: Color { Color(nsColor: .controlBackgroundColor) }
+    /// A faint recessed panel fill (Kanban lane, grouped sections) — adaptive.
+    static var lane: Color { Color.primary.opacity(0.045) }
+    /// Subtle adaptive hairline for borders and dividers.
+    static var hairline: Color { Color.primary.opacity(0.08) }
+}

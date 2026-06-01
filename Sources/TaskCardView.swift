@@ -32,14 +32,13 @@ struct TaskCardView: View {
         .padding(.trailing, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            Color(nsColor: .controlBackgroundColor)
-                .overlay(task.status.color.opacity(0.06))
+            Theme.surface.overlay(task.status.color.opacity(0.06))
         )
         .overlay(Rectangle().fill(task.status.color).frame(width: 3), alignment: .leading)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.07))
+                .strokeBorder(Theme.hairline)
         )
         .shadow(color: .black.opacity(hovering ? 0.10 : 0.04), radius: hovering ? 5 : 2, y: 1)
         .opacity(isDone ? 0.85 : 1)

@@ -47,7 +47,7 @@ date, and notes, with an **automatic roll-up progress bar** on the parent and
 
 ## Install
 
-1. Download / open `dist/Kanpan-1.0.0.dmg`.
+1. Download / open `dist/Kanpan-1.0.1.dmg` (or the latest [release](https://github.com/enderphan94/kanpan/releases)).
 2. Drag **Kanpan** onto **Applications**.
 3. **First launch:** right-click **Kanpan → Open → Open** (the app is unsigned,
    so Gatekeeper needs a one-time confirmation).

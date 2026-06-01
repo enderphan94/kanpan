@@ -214,7 +214,7 @@ struct ContentArea: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .underPageBackgroundColor))
+        .background(Theme.canvas)
     }
 }
 

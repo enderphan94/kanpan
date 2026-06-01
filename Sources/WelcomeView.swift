@@ -153,8 +153,7 @@ private struct ActionRow: View {
 private struct WelcomeBackground: View {
     var body: some View {
         LinearGradient(
-            colors: [Color(nsColor: .windowBackgroundColor),
-                     Color(nsColor: .underPageBackgroundColor)],
+            colors: [Theme.surface, Theme.canvas],
             startPoint: .top, endPoint: .bottom
         )
         .ignoresSafeArea()

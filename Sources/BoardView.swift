@@ -48,11 +48,11 @@ private struct StatusColumn: View {
         }
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.55))
+                .fill(Theme.lane)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(isTargeted ? status.color : Color.primary.opacity(0.06),
+                .strokeBorder(isTargeted ? status.color : Theme.hairline,
                               lineWidth: isTargeted ? 2 : 1)
         )
         .dropDestination(for: String.self) { items, _ in
