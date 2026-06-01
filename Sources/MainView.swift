@@ -1,0 +1,265 @@
+import SwiftUI
+
+struct MainView: View {
+    @EnvironmentObject var store: AppStore
+
+    var body: some View {
+        NavigationSplitView {
+            SidebarView()
+                .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 320)
+        } detail: {
+            ContentArea()
+        }
+        .toolbar { toolbarContent }
+        .searchable(text: $store.searchText, placement: .toolbar, prompt: "Search tasks")
+        .sheet(isPresented: Binding(
+            get: { !store.detailStack.isEmpty },
+            set: { if !$0 { store.closeDetail() } })) {
+            TaskDetailView()
+                .environmentObject(store)
+                .frame(minWidth: 560, idealWidth: 640, minHeight: 520, idealHeight: 660)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            if let id = store.selectedBoardID {
+                Text(id).font(.headline)
+            }
+        }
+        ToolbarItem(placement: .principal) {
+            Picker("", selection: Binding(
+                get: { store.viewMode },
+                set: { store.setViewMode($0) })) {
+                Label("Board", systemImage: "rectangle.split.3x1").tag(ViewMode.board)
+                Label("Grid", systemImage: "tablecells").tag(ViewMode.grid)
+            }
+            .pickerStyle(.segmented)
+            .labelStyle(.titleAndIcon)
+            .fixedSize()
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                store.requestNewTask()
+            } label: {
+                Label("New Task", systemImage: "plus")
+            }
+            .disabled(store.selectedBoardID == nil)
+            .help("Add a task (⌘N)")
+        }
+    }
+}
+
+// MARK: - Sidebar
+
+struct SidebarView: View {
+    @EnvironmentObject var store: AppStore
+    @State private var prompt: NamePrompt?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            List(selection: Binding(
+                get: { store.selectedBoardID },
+                set: { store.selectedBoardID = $0; store.rememberSelection() })) {
+                Section("Boards") {
+                    ForEach(store.boards) { board in
+                        Label(board.name, systemImage: "square.stack.3d.up")
+                            .tag(board.id as String?)
+                            .contextMenu {
+                                Button("Rename…") { prompt = .rename(board.id) }
+                                Button("Reveal in Finder") { store.revealVaultInFinder() }
+                                Divider()
+                                Button("Delete Board", role: .destructive) {
+                                    prompt = .deleteConfirm(board.id)
+                                }
+                            }
+                    }
+                    .onMove { store.moveBoard(from: $0, to: $1) }
+                }
+            }
+            .listStyle(.sidebar)
+
+            Divider()
+            HStack {
+                Button {
+                    prompt = .newBoard
+                } label: {
+                    Label("Add Board", systemImage: "plus")
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Menu {
+                    Button("Reveal Vault in Finder") { store.revealVaultInFinder() }
+                    Button("Reload from Disk") { store.reload() }
+                    Divider()
+                    Button("Switch Vault…") { store.closeVault() }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) { vaultHeader }
+        .onChange(of: store.showNewBoardSheet) { _, newValue in
+            if newValue { prompt = .newBoard; store.showNewBoardSheet = false }
+        }
+        .sheet(item: $prompt) { p in promptSheet(p) }
+    }
+
+    private var vaultHeader: some View {
+        HStack(spacing: 10) {
+            AppGlyph(size: 26)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Kanpan").font(.system(size: 13, weight: .semibold))
+                Text(store.vaultURL?.lastPathComponent ?? "Vault")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    @ViewBuilder
+    private func promptSheet(_ p: NamePrompt) -> some View {
+        switch p {
+        case .newBoard:
+            NamePromptSheet(title: "New Board", placeholder: "Board name", initial: "") { name in
+                store.addBoard(named: name)
+            }
+        case .rename(let id):
+            NamePromptSheet(title: "Rename Board", placeholder: "Board name", initial: id) { name in
+                store.renameBoard(id, to: name)
+            }
+        case .deleteConfirm(let id):
+            DeleteBoardSheet(boardName: id) { store.deleteBoard(id) }
+        }
+    }
+}
+
+enum NamePrompt: Identifiable {
+    case newBoard
+    case rename(String)
+    case deleteConfirm(String)
+    var id: String {
+        switch self {
+        case .newBoard: return "new"
+        case .rename(let s): return "rename-\(s)"
+        case .deleteConfirm(let s): return "del-\(s)"
+        }
+    }
+}
+
+// MARK: - Content
+
+struct ContentArea: View {
+    @EnvironmentObject var store: AppStore
+
+    var body: some View {
+        Group {
+            if store.boards.isEmpty {
+                EmptyStateView(
+                    icon: "square.stack.3d.up.slash",
+                    title: "No boards yet",
+                    message: "Create a board to start tracking tasks.",
+                    actionTitle: "Add Board") { store.requestNewBoard() }
+            } else if let board = store.selectedBoardID {
+                switch store.viewMode {
+                case .board: BoardView(board: board)
+                case .grid:  GridView(board: board)
+                }
+            } else {
+                EmptyStateView(icon: "sidebar.left", title: "Select a board",
+                               message: "Pick a board from the sidebar.", actionTitle: nil, action: nil)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .underPageBackgroundColor))
+    }
+}
+
+struct EmptyStateView: View {
+    let icon: String
+    let title: String
+    let message: String
+    let actionTitle: String?
+    let action: (() -> Void)?
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 40)).foregroundStyle(.tertiary)
+            Text(title).font(.title3.weight(.semibold))
+            Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            if let actionTitle, let action {
+                Button(actionTitle, action: action).buttonStyle(.borderedProminent).padding(.top, 4)
+            }
+        }
+        .frame(maxWidth: 360)
+    }
+}
+
+// MARK: - Reusable prompt sheets
+
+struct NamePromptSheet: View {
+    let title: String
+    let placeholder: String
+    let initial: String
+    let onConfirm: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var text: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title).font(.headline)
+            TextField(placeholder, text: $text)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(confirm)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Save", action: confirm)
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
+        .onAppear { text = initial }
+    }
+
+    private func confirm() {
+        let t = text.trimmingCharacters(in: .whitespaces)
+        guard !t.isEmpty else { return }
+        onConfirm(t)
+        dismiss()
+    }
+}
+
+struct DeleteBoardSheet: View {
+    let boardName: String
+    let onDelete: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Delete “\(boardName)”?").font(.headline)
+            Text("This permanently deletes the board folder and all its task files from your vault. This can't be undone.")
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Delete", role: .destructive) { onDelete(); dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 380)
+    }
+}

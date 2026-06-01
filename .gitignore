@@ -1,0 +1,12 @@
+# Build artifacts (regenerate with ./build.sh && ./make_dmg.sh)
+build/
+dist/
+
+# macOS
+.DS_Store
+*.swp
+
+# Xcode (in case a project is added later)
+*.xcuserstate
+xcuserdata/
+.build/
