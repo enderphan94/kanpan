@@ -9,25 +9,21 @@ struct MainView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 320)
         } detail: {
             ContentArea()
+                .navigationTitle(store.selectedBoardID ?? "Kanpan")
+                .navigationSubtitle(store.vaultURL?.lastPathComponent ?? "")
         }
         .toolbar { toolbarContent }
         .searchable(text: $store.searchText, placement: .toolbar, prompt: "Search tasks")
-        .sheet(isPresented: Binding(
-            get: { !store.detailStack.isEmpty },
-            set: { if !$0 { store.closeDetail() } })) {
-            TaskDetailView()
-                .environmentObject(store)
-                .frame(minWidth: 560, idealWidth: 640, minHeight: 520, idealHeight: 660)
+        .overlay {
+            if !store.detailStack.isEmpty {
+                DetailOverlay()
+            }
         }
+        .animation(.easeOut(duration: 0.16), value: store.detailStack)
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            if let id = store.selectedBoardID {
-                Text(id).font(.headline)
-            }
-        }
         ToolbarItem(placement: .principal) {
             Picker("", selection: Binding(
                 get: { store.viewMode },
@@ -48,6 +44,37 @@ struct MainView: View {
             .disabled(store.selectedBoardID == nil)
             .help("Add a task (⌘N)")
         }
+    }
+}
+
+// MARK: - Detail overlay
+
+/// The task detail panel, shown as an in-window overlay (not a modal sheet) so
+/// clicking the dimmed backdrop dismisses it — saving as it closes.
+struct DetailOverlay: View {
+    @EnvironmentObject var store: AppStore
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(.black.opacity(0.4))
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { store.closeDetail() }
+
+            TaskDetailView()
+                .frame(width: 660)
+                .frame(minHeight: 460, maxHeight: 760)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.10))
+                )
+                .shadow(color: .black.opacity(0.35), radius: 28, y: 8)
+                .padding(.vertical, 32)
+        }
+        .transition(.opacity)
     }
 }
 
@@ -90,6 +117,14 @@ struct SidebarView: View {
                 .buttonStyle(.plain)
                 Spacer()
                 Menu {
+                    Picker("Appearance", selection: Binding(
+                        get: { store.appearance },
+                        set: { store.setAppearance($0) })) {
+                        ForEach(AppAppearance.allCases) { a in
+                            Label(a.title, systemImage: a.symbol).tag(a)
+                        }
+                    }
+                    Divider()
                     Button("Reveal Vault in Finder") { store.revealVaultInFinder() }
                     Button("Reload from Disk") { store.reload() }
                     Divider()

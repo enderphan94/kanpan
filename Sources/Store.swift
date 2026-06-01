@@ -3,6 +3,33 @@ import Combine
 
 enum ViewMode: String { case board, grid }
 
+/// App appearance override. `.system` follows macOS; the others force light/dark.
+enum AppAppearance: String, CaseIterable, Identifiable {
+    case system, light, dark
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .system: return "System"
+        case .light:  return "Light"
+        case .dark:   return "Dark"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .system: return "circle.lefthalf.filled"
+        case .light:  return "sun.max"
+        case .dark:   return "moon"
+        }
+    }
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light:  return .light
+        case .dark:   return .dark
+        }
+    }
+}
+
 /// The single source of truth for the running app. Holds the open vault, the
 /// in-memory task list, and the current UI selection. Every mutation persists
 /// to markdown — structural edits immediately, text edits debounced.
@@ -20,6 +47,7 @@ final class AppStore: ObservableObject {
     // UI state
     @Published var selectedBoardID: String?
     @Published var viewMode: ViewMode = .board
+    @Published var appearance: AppAppearance = .system
     @Published var searchText: String = ""
     /// Drill-in stack of task ids. Empty = no detail open; last = visible card.
     @Published var detailStack: [String] = []
@@ -28,6 +56,7 @@ final class AppStore: ObservableObject {
 
     private let vaultKey = "KanpanVaultPath"
     private let viewModeKey = "KanpanViewMode"
+    private let appearanceKey = "KanpanAppearance"
     private var pendingSaves: [String: DispatchWorkItem] = [:]
 
     var hasVault: Bool { vault != nil }
@@ -37,6 +66,8 @@ final class AppStore: ObservableObject {
     func bootstrap() {
         if let raw = UserDefaults.standard.string(forKey: viewModeKey),
            let m = ViewMode(rawValue: raw) { viewMode = m }
+        if let raw = UserDefaults.standard.string(forKey: appearanceKey),
+           let a = AppAppearance(rawValue: raw) { appearance = a }
         if let saved = UserDefaults.standard.string(forKey: vaultKey) {
             let url = URL(fileURLWithPath: saved)
             var isDir: ObjCBool = false
@@ -123,6 +154,11 @@ final class AppStore: ObservableObject {
     }
 
     func rememberSelection() { persistPrefs() }
+
+    func setAppearance(_ a: AppAppearance) {
+        appearance = a
+        UserDefaults.standard.set(a.rawValue, forKey: appearanceKey)
+    }
 
     // MARK: - Boards
 
@@ -237,11 +273,23 @@ final class AppStore: ObservableObject {
 
     private func save(_ id: String) {
         pendingSaves[id] = nil
+        persist(id)
+    }
+
+    private func persist(_ id: String) {
         guard let v = vault, let idx = tasks.firstIndex(where: { $0.id == id }) else { return }
         if let written = try? v.write(tasks[idx]) {
             // Persist the (possibly renamed) path without disturbing edits.
             tasks[idx].relPath = written.relPath
         }
+    }
+
+    /// Write out any debounced edits right now (called when a detail closes).
+    func flushSaves() {
+        let ids = Array(pendingSaves.keys)
+        for id in ids { pendingSaves[id]?.cancel() }
+        pendingSaves.removeAll()
+        for id in ids { persist(id) }
     }
 
     func setStatus(_ id: String, _ status: TaskStatus) {
@@ -309,8 +357,8 @@ final class AppStore: ObservableObject {
 
     func openDetail(_ id: String) { detailStack = [id] }
     func drillInto(_ id: String) { detailStack.append(id) }
-    func popDetail() { if !detailStack.isEmpty { detailStack.removeLast() } }
-    func closeDetail() { detailStack = [] }
+    func popDetail() { flushSaves(); if !detailStack.isEmpty { detailStack.removeLast() } }
+    func closeDetail() { flushSaves(); detailStack = [] }
 
     /// Two-way binding into a task by id, so detail fields can edit in place.
     func binding(_ id: String) -> Binding<KTask> {

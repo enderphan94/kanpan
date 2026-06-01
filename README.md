@@ -38,7 +38,8 @@ date, and notes, with an **automatic roll-up progress bar** on the parent and
 | **Priority** | Urgent / Important / Medium / Low. Only above-normal priorities show a flag, so boards stay scannable. |
 | **Labels** | Colored, multi-select labels with stable auto-assigned colors. |
 | **Due dates** | Start + due dates; overdue shows red. |
-| **Markdown notes** | Each task has a Markdown notes body with a **Write / Preview** toggle. |
+| **Markdown notes** | Each task has a Markdown notes body with a **Write / Preview** toggle. The detail panel saves and closes when you click outside it. |
+| **Light / Dark / System** | Appearance follows macOS by default; force Light or Dark from the sidebar **⋯** menu. |
 | **Vault** | Obsidian-style: your data is a folder of `.md` files. Create, open, or switch vaults; reveal in Finder; reload from disk. |
 | **Search** | Filter the current board by title, notes, or label. |
 

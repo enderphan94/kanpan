@@ -50,5 +50,6 @@ struct RootView: View {
                 WelcomeView()
             }
         }
+        .preferredColorScheme(store.appearance.colorScheme)
     }
 }
