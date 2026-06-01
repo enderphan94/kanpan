@@ -380,9 +380,3 @@ struct FlowLayout: Layout {
     }
 }
 
-extension String {
-    /// nil when empty/whitespace, for `?? "fallback"` chains.
-    var nonEmpty: String? {
-        trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
-    }
-}

@@ -97,6 +97,7 @@ final class AppStore: ObservableObject {
         }
         rebuildBoards(names)
         tasks = v.loadAllTasks()
+        migrateLegacyLayoutIfNeeded()
 
         if let last = prefs.lastBoard, boards.contains(where: { $0.id == last }) {
             selectedBoardID = last
@@ -242,13 +243,15 @@ final class AppStore: ObservableObject {
     func addTask(board: String, status: TaskStatus, title: String, parentID: String? = nil) -> KTask {
         let peers = tasks.filter { $0.boardID == board && $0.parentID == parentID && $0.status == status }
         let nextOrder = (peers.map { $0.order }.max() ?? 0) + 1
-        var t = KTask.new(boardID: board, status: status, title: title, parentID: parentID, order: nextOrder)
-        if let v = vault, let written = try? v.write(t) { t = written }
+        let t = KTask.new(boardID: board, status: status, title: title, parentID: parentID, order: nextOrder)
         tasks.append(t)
-        return t
+        saveNow(parentID ?? t.id)          // write the project file (creates or rewrites)
+        return task(t.id) ?? t
     }
 
-    /// Replace a task in memory and persist it (debounced for rapid text edits).
+    /// Replace a task in memory and persist its project (debounced for rapid
+    /// text edits). A project is one file: editing a sub-task rewrites the
+    /// parent's file.
     func commit(_ task: KTask, immediate: Bool = false) {
         var task = task
         task.updated = Date()
@@ -257,31 +260,77 @@ final class AppStore: ObservableObject {
         } else {
             tasks.append(task)
         }
-        if immediate {
-            save(task.id)
-        } else {
-            scheduleSave(task.id)
-        }
+        let root = task.parentID ?? task.id
+        if immediate { saveNow(root) } else { scheduleSave(root) }
     }
 
-    private func scheduleSave(_ id: String) {
-        pendingSaves[id]?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.save(id) }
-        pendingSaves[id] = work
+    private func scheduleSave(_ rootID: String) {
+        pendingSaves[rootID]?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.saveNow(rootID) }
+        pendingSaves[rootID] = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
     }
 
-    private func save(_ id: String) {
-        pendingSaves[id] = nil
-        persist(id)
+    private func saveNow(_ rootID: String) {
+        pendingSaves[rootID] = nil
+        persistProject(rootID: rootID)
     }
 
-    private func persist(_ id: String) {
-        guard let v = vault, let idx = tasks.firstIndex(where: { $0.id == id }) else { return }
-        if let written = try? v.write(tasks[idx]) {
-            // Persist the (possibly renamed) path without disturbing edits.
-            tasks[idx].relPath = written.relPath
+    /// Serialize a whole project (parent + sub-tasks) to its single file.
+    private func persistProject(rootID: String) {
+        guard let v = vault,
+              let parent = tasks.first(where: { $0.id == rootID && $0.parentID == nil })
+        else { return }
+        let subs = tasks.filter { $0.parentID == rootID }
+        guard let (np, nsubs) = try? v.writeProject(parent: parent, subtasks: subs) else { return }
+        setRelPath(np.id, np.relPath)
+        for ns in nsubs { setRelPath(ns.id, ns.relPath) }
+    }
+
+    private func setRelPath(_ id: String, _ rel: String) {
+        if let idx = tasks.firstIndex(where: { $0.id == id }) { tasks[idx].relPath = rel }
+    }
+
+    /// One-time migration from the old layout (one file per task, sub-tasks in
+    /// their own files) to the new layout (one file per project). Detects
+    /// sub-tasks that still live in their own file, backs up the vault, writes
+    /// each project as a single consolidated file, and removes the leftovers.
+    private func migrateLegacyLayoutIfNeeded() {
+        guard let v = vault else { return }
+        let topIDs = Set(tasks.filter { $0.parentID == nil }.map { $0.id })
+
+        // Legacy on disk = a sub-task stored in a file different from its parent
+        // (or orphaned because its parent no longer exists).
+        let legacy = tasks.filter { sub in
+            guard sub.parentID != nil else { return false }
+            guard let p = tasks.first(where: { $0.id == sub.parentID }) else { return true }
+            return sub.relPath != p.relPath
         }
+        guard !legacy.isEmpty else { return }
+
+        _ = try? v.backup(label: "Kanpan backup before single-file migration")
+        let oldFiles = Set(legacy.map { $0.relPath }.filter { !$0.isEmpty })
+
+        // Promote orphans so their content survives.
+        for i in tasks.indices {
+            if let pid = tasks[i].parentID, !topIDs.contains(pid) {
+                tasks[i].parentID = nil
+                tasks[i].relPath = ""
+            }
+        }
+
+        // Write every project as one file (the parent absorbs its sub-tasks).
+        for parent in tasks.filter({ $0.parentID == nil }) {
+            persistProject(rootID: parent.id)
+        }
+
+        // Remove the leftover separate sub-task files (never a live project file).
+        let projectFiles = Set(tasks.filter { $0.parentID == nil }.map { $0.relPath })
+        for path in oldFiles where !projectFiles.contains(path) {
+            v.deleteFile(relPath: path)
+        }
+
+        tasks = v.loadAllTasks()   // reload a clean, consolidated state
     }
 
     /// Write out any debounced edits right now (called when a detail closes).
@@ -289,7 +338,7 @@ final class AppStore: ObservableObject {
         let ids = Array(pendingSaves.keys)
         for id in ids { pendingSaves[id]?.cancel() }
         pendingSaves.removeAll()
-        for id in ids { persist(id) }
+        for id in ids { persistProject(rootID: id) }
     }
 
     func setStatus(_ id: String, _ status: TaskStatus) {
@@ -300,12 +349,15 @@ final class AppStore: ObservableObject {
 
     func delete(_ id: String) {
         guard let t = task(id) else { return }
-        // Remove sub-tasks first (one level deep).
-        for sub in tasks.filter({ $0.parentID == id }) {
-            vault?.delete(sub)
+        if let parentID = t.parentID {
+            // A sub-task lives inside its parent's file: drop it and rewrite.
+            tasks.removeAll { $0.id == id }
+            saveNow(parentID)
+        } else {
+            // A top-level project owns its file (and all its sub-tasks).
+            vault?.deleteFile(relPath: t.relPath)
+            tasks.removeAll { $0.id == id || $0.parentID == id }
         }
-        vault?.delete(t)
-        tasks.removeAll { $0.id == id || $0.parentID == id }
         detailStack.removeAll { $0 == id }
     }
 
@@ -334,13 +386,17 @@ final class AppStore: ObservableObject {
         }
     }
 
-    /// Promote a sub-task into its own top-level card on the same board.
+    /// Promote a sub-task into its own top-level card (its own project file) on
+    /// the same board, and rewrite the old parent's file without it.
     func promoteToTopLevel(_ id: String) {
-        guard var t = task(id) else { return }
+        guard var t = task(id), let oldParent = t.parentID else { return }
         t.parentID = nil
+        t.relPath = ""   // force a fresh project file for the promoted task
         let peers = tasks.filter { $0.boardID == t.boardID && $0.parentID == nil && $0.status == t.status }
         t.order = (peers.map { $0.order }.max() ?? 0) + 1
-        commit(t, immediate: true)
+        if let idx = tasks.firstIndex(where: { $0.id == id }) { tasks[idx] = t }
+        saveNow(t.id)          // create the new project file
+        saveNow(oldParent)     // rewrite the old parent without this sub-task
     }
 
     // MARK: - Menu intents

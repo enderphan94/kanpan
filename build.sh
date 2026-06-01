@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 
 APP_NAME="Kanpan"
 BUNDLE_ID="com.enderphan.kanpan"
-VERSION="1.0.1"
+VERSION="1.1.0"
 MIN_OS="14.0"
 TARGET="arm64-apple-macosx${MIN_OS}"
 

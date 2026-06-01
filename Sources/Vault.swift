@@ -98,7 +98,7 @@ struct Vault {
         collectMarkdown(in: boardURL).forEach { url in
             guard let content = try? String(contentsOf: url, encoding: .utf8) else { return }
             let rel = relativePath(of: url)
-            out.append(MarkdownFile.parse(content, boardID: board, relPath: rel))
+            out.append(contentsOf: MarkdownFile.parseProject(content, boardID: board, relPath: rel))
         }
         return out
     }
@@ -121,18 +121,18 @@ struct Vault {
         return files
     }
 
-    /// Write a task to disk, creating or renaming its file as needed.
-    /// Returns the task with its `relPath` updated.
+    /// Write a whole project (parent + its sub-tasks) to one `.md` file,
+    /// creating or renaming it based on the parent's title. Returns the parent
+    /// and sub-tasks with their `relPath` updated to the project file.
     @discardableResult
-    func write(_ task: KTask) throws -> KTask {
-        var task = task
-        let boardURL = root.appendingPathComponent(task.boardID, isDirectory: true)
+    func writeProject(parent: KTask, subtasks: [KTask]) throws -> (KTask, [KTask]) {
+        var parent = parent
+        let boardURL = root.appendingPathComponent(parent.boardID, isDirectory: true)
         try fm.createDirectory(at: boardURL, withIntermediateDirectories: true)
 
-        let desiredName = NameUtil.slug(task.title) + ".md"
-        let currentURL: URL? = task.relPath.isEmpty ? nil : root.appendingPathComponent(task.relPath)
+        let desiredName = NameUtil.slug(parent.title) + ".md"
+        let currentURL: URL? = parent.relPath.isEmpty ? nil : root.appendingPathComponent(parent.relPath)
 
-        // Choose the destination file name, keeping it unique within the board.
         var destURL = boardURL.appendingPathComponent(desiredName)
         if currentURL?.lastPathComponent != desiredName {
             destURL = uniqueURL(in: boardURL, name: desiredName, excluding: currentURL)
@@ -140,25 +140,43 @@ struct Vault {
             destURL = currentURL!
         }
 
-        // Rename if the file already exists under a different name.
+        // Rename the file when the title changed.
         if let currentURL, currentURL != destURL, fm.fileExists(atPath: currentURL.path) {
-            // Remove a stale file at the destination only if it isn't ours.
             if fm.fileExists(atPath: destURL.path) {
                 destURL = uniqueURL(in: boardURL, name: desiredName, excluding: currentURL)
             }
             try fm.moveItem(at: currentURL, to: destURL)
         }
 
-        task.relPath = relativePath(of: destURL)
-        let content = MarkdownFile.serialize(task)
+        let rel = relativePath(of: destURL)
+        parent.relPath = rel
+        var subs = subtasks
+        for i in subs.indices { subs[i].relPath = rel }
+
+        let content = MarkdownFile.serializeProject(parent: parent, subtasks: subs)
         try content.data(using: .utf8)?.write(to: destURL, options: .atomic)
-        return task
+        return (parent, subs)
     }
 
-    func delete(_ task: KTask) {
-        guard !task.relPath.isEmpty else { return }
-        let url = root.appendingPathComponent(task.relPath)
-        try? fm.removeItem(at: url)
+    /// Delete a project file by its vault-relative path.
+    func deleteFile(relPath: String) {
+        guard !relPath.isEmpty else { return }
+        try? fm.removeItem(at: root.appendingPathComponent(relPath))
+    }
+
+    /// Copy the whole vault to a sibling folder (used once before migrating the
+    /// storage layout). Returns the backup location.
+    @discardableResult
+    func backup(label: String) throws -> URL {
+        let parent = root.deletingLastPathComponent()
+        let base = root.lastPathComponent + " (\(label))"
+        var dest = parent.appendingPathComponent(base)
+        var n = 2
+        while fm.fileExists(atPath: dest.path) {
+            dest = parent.appendingPathComponent("\(base) \(n)"); n += 1
+        }
+        try fm.copyItem(at: root, to: dest)
+        return dest
     }
 
     // MARK: Helpers

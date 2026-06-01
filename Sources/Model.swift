@@ -129,6 +129,13 @@ struct KTask: Identifiable, Equatable {
     }
 }
 
+extension String {
+    /// nil when empty/whitespace, for `?? "fallback"` chains.
+    var nonEmpty: String? {
+        trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
+    }
+}
+
 // MARK: - Board
 
 /// A board is one folder directly under the vault root. Its display name is the

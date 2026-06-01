@@ -47,7 +47,7 @@ date, and notes, with an **automatic roll-up progress bar** on the parent and
 
 ## Install
 
-1. Download / open `dist/Kanpan-1.0.1.dmg` (or the latest [release](https://github.com/enderphan94/kanpan/releases)).
+1. Download / open `dist/Kanpan-1.1.0.dmg` (or the latest [release](https://github.com/enderphan94/kanpan/releases)).
 2. Drag **Kanpan** onto **Applications**.
 3. **First launch:** right-click **Kanpan → Open → Open** (the app is unsigned,
    so Gatekeeper needs a one-time confirmation).
@@ -60,19 +60,22 @@ date, and notes, with an **automatic roll-up progress bar** on the parent and
 
 ## How your data is stored
 
-A **vault** is one directory. Each **board** is a folder inside it; each **task**
-is a single `.md` file — YAML-style front-matter plus a Markdown notes body:
+A **vault** is one directory. Each **board** is a folder inside it; each **project
+is one `.md` file** that holds the project *and all its sub-tasks* — so a board of
+10 projects is just 10 files, not dozens:
 
 ```
 My Vault/
 ├─ My Board/
-│  ├─ Redesign landing page.md      ← a task
-│  └─ Build hero section.md         ← a sub-task (front-matter has `parent:`)
+│  ├─ Redesign landing page.md      ← a project + its sub-tasks
+│  └─ Launch checklist.md
 └─ Personal/
    └─ Taxes.md
 ```
 
-A task file looks like this — fully human-readable and editable anywhere:
+A project file is fully human-readable and editable anywhere. The parent uses
+YAML front-matter + notes; each sub-task follows a reserved `<!-- kanpan:subtask -->`
+delimiter with the same fields and its own notes:
 
 ```markdown
 ---
@@ -87,18 +90,26 @@ created: 2026-06-01T10:00:00Z
 updated: 2026-06-01T11:30:00Z
 ---
 
-# Goals
+Project notes in **markdown** — headings, lists, code, all fine.
 
-- Hero section
-- **Bold** copy
+<!-- kanpan:subtask -->
+title: Build hero section
+status: done
+due: 2026-06-10
+order: 1
+
+Sub-task notes in markdown.
 ```
 
-- **Identity** is the `id` in front-matter, so renaming a task (which renames its
-  file) never breaks links or sub-task relationships.
-- **Sub-tasks** point at their parent via `parent:`. Hierarchy is capped at one
-  level by design.
-- A plain `.md` file with no front-matter is still imported as a task (titled by
+- **Identity** is the `id` in front-matter, so renaming a project (which renames
+  its file) never breaks anything.
+- **Sub-tasks** live inside their parent's file (one HTML-comment-delimited block
+  each). Hierarchy is capped at one level by design. The comment hides in
+  Obsidian's reading view; the notes render normally.
+- A plain `.md` file with no front-matter is still imported as a project (titled by
   its filename), so an existing vault stays readable.
+- Opening a vault created by an older version (one file per task) **auto-migrates**
+  it to the single-file layout, after backing the vault up to a sibling folder.
 - A hidden `.kanpan.json` holds only non-content UI prefs (board order); all task
   data lives in the Markdown.
 

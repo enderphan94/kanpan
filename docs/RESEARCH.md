@@ -130,3 +130,37 @@ Apple docs — [windowBackgroundColor](https://developer.apple.com/documentation
 [controlBackgroundColor](https://developer.apple.com/documentation/appkit/nscolor/controlbackgroundcolor),
 [underPageBackgroundColor](https://developer.apple.com/documentation/appkit/nscolor/underpagebackgroundcolor),
 [Material](https://developer.apple.com/documentation/swiftui/material).
+
+---
+
+## 4. One file per project (single-file storage)
+
+Storing each task — parent *and* every sub-task — as its own `.md` file made the
+vault sprawl once there were 10+ projects. Researched single-file conventions for
+"a task + nested sub-tasks, each with metadata **and** multi-line notes":
+
+- **YAML front-matter array-of-objects** (sub-tasks as a list, notes as block
+  scalars `|`): rejected — indentation-sensitive, breaks on a stray space or a
+  `:`/`#` in prose, and Obsidian renders front-matter as a properties table so the
+  notes wouldn't show as Markdown.
+- **`###` headings as sub-task separators**: rejected — collides with headings
+  users legitimately write inside notes.
+- **Emacs Org-mode** (`:PROPERTIES:` drawer + free body under each headline) is the
+  gold standard for "one file = a tree of tasks with state + properties + notes."
+  Not Markdown, but the *pattern* — hard-delimited machine fields + free notes
+  body — is exactly what to copy.
+
+**Chosen format (implemented v1.1.0):** parent YAML front-matter + parent notes,
+then each sub-task introduced by a reserved **`<!-- kanpan:subtask -->`** HTML
+comment carrying the same `key: value` fields, followed by free Markdown notes.
+HTML comments are hidden in Obsidian's reading view and never collide with prose,
+so the split is unambiguous; the parser tracks fenced code blocks so a ``` ``` ```
+or `---` inside notes can't break it. Opening an old multi-file vault auto-migrates
+to this layout after a backup. A board of 10 projects → 10 files.
+
+*Sources:* [Org Manual — Property Syntax](https://orgmode.org/manual/Property-Syntax.html);
+[Obsidian Tasks — Emoji format](https://publish.obsidian.md/tasks/Reference/Task+Formats/Tasks+Emoji+Format);
+[Dataview inline fields](https://blacksmithgu.github.io/obsidian-dataview/annotation/add-metadata/);
+[TaskPaper guide](https://guide.taskpaper.com/getting-started/);
+[Jekyll front matter](https://jekyllrb.com/docs/front-matter/);
+[Obsidian — comments in reading view](https://forum.obsidian.md/t/comments-in-reading-mode/55613).
