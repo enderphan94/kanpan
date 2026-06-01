@@ -18,6 +18,13 @@ struct KanpanApp: App {
         }
         .windowToolbarStyle(.unified(showsTitle: true))
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About Kanpan") { store.showAbout = true }
+                Button("Check for Updates…") {
+                    store.showAbout = true
+                    store.checkForUpdates()
+                }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("New Task") { store.requestNewTask() }
                     .keyboardShortcut("n", modifiers: .command)
@@ -51,5 +58,22 @@ struct RootView: View {
             }
         }
         .preferredColorScheme(store.appearance.colorScheme)
+        .sheet(isPresented: $store.showAbout) {
+            AboutView().environmentObject(store)
+        }
+        .alert("Update Available", isPresented: Binding(
+            get: { store.pendingUpdate != nil },
+            set: { if !$0 { store.pendingUpdate = nil } })) {
+            Button("Update Now") { if let u = store.pendingUpdate { store.applyUpdate(u) } }
+            if let r = store.pendingUpdate?.releaseURL {
+                Button("Release Notes") { NSWorkspace.shared.open(r) }
+            }
+            Button("Later", role: .cancel) { store.pendingUpdate = nil }
+        } message: {
+            if let u = store.pendingUpdate {
+                Text("Kanpan \(u.latest) is available — you have \(u.current). Update now? Kanpan will restart to finish.")
+            }
+        }
+        .task { store.checkForUpdatesOnLaunch() }
     }
 }

@@ -164,3 +164,27 @@ to this layout after a backup. A board of 10 projects → 10 files.
 [TaskPaper guide](https://guide.taskpaper.com/getting-started/);
 [Jekyll front matter](https://jekyllrb.com/docs/front-matter/);
 [Obsidian — comments in reading view](https://forum.obsidian.md/t/comments-in-reading-mode/55613).
+
+---
+
+## 5. In-app auto-update (GitHub Releases)
+
+Modeled on the MarkView desktop app's updater (`desktop/main.py`). Flow:
+
+1. **Check:** `GET https://api.github.com/repos/<repo>/releases/latest`, read
+   `tag_name`, find the first `.dmg` asset's `browser_download_url`, and compare
+   the tag to the bundle's `CFBundleShortVersionString` (versions normalized to a
+   padded 3-int tuple so `v1.2` == `1.2.0`). Anonymous API = 60 req/hour, plenty
+   for one check per launch.
+2. **Prompt:** on launch, if a newer release exists, ask the user
+   (Update Now / Release Notes / Later). Also available in **About Kanpan** with a
+   "Check for Updates" button.
+3. **Install in place:** download the `.dmg` → `hdiutil attach` → spawn a
+   *detached* bash helper that waits for the app to quit, copies the new
+   `Kanpan.app` beside the old one, strips `com.apple.quarantine` (so Gatekeeper
+   doesn't re-prompt the already-trusted bundle id), atomically swaps it in,
+   detaches the DMG, and relaunches. Logs to
+   `~/Library/Application Support/Kanpan/update.log`. Refuses to run when launched
+   from the DMG mount (`/Volumes/…`).
+
+Implemented in `Updater.swift` (native Swift port of the MarkView helper script).

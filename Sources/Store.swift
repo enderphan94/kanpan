@@ -30,6 +30,14 @@ enum AppAppearance: String, CaseIterable, Identifiable {
     }
 }
 
+/// Drives the About window's update UI.
+enum UpdateState {
+    case idle, checking, upToDate
+    case available(UpdateInfo)
+    case downloading
+    case failed(String)
+}
+
 /// The single source of truth for the running app. Holds the open vault, the
 /// in-memory task list, and the current UI selection. Every mutation persists
 /// to markdown — structural edits immediately, text edits debounced.
@@ -53,6 +61,12 @@ final class AppStore: ObservableObject {
     @Published var detailStack: [String] = []
     /// Set by the "New Board…" menu command; the sidebar presents its prompt.
     @Published var showNewBoardSheet: Bool = false
+
+    // Updates
+    @Published var showAbout: Bool = false
+    @Published var updateState: UpdateState = .idle
+    @Published var pendingUpdate: UpdateInfo? = nil   // non-nil → show launch prompt
+    private var didLaunchUpdateCheck = false
 
     private let vaultKey = "KanpanVaultPath"
     private let viewModeKey = "KanpanViewMode"
@@ -408,6 +422,55 @@ final class AppStore: ObservableObject {
     }
 
     func requestNewBoard() { showNewBoardSheet = true }
+
+    // MARK: - Updates
+
+    /// Quiet check after launch — only prompts the user when a newer release
+    /// with a downloadable .dmg actually exists.
+    func checkForUpdatesOnLaunch() {
+        guard !didLaunchUpdateCheck else { return }
+        didLaunchUpdateCheck = true
+        Task { await runUpdateCheck(promptIfAvailable: true) }
+    }
+
+    /// Explicit check from the About window.
+    func checkForUpdates() {
+        Task { await runUpdateCheck(promptIfAvailable: false) }
+    }
+
+    @MainActor
+    private func runUpdateCheck(promptIfAvailable: Bool) async {
+        updateState = .checking
+        do {
+            let info = try await Updater.check()
+            if info.isAvailable {
+                updateState = .available(info)
+                if promptIfAvailable { pendingUpdate = info }
+            } else {
+                updateState = .upToDate
+            }
+        } catch {
+            updateState = .failed((error as? UpdaterError)?.errorDescription ?? error.localizedDescription)
+        }
+    }
+
+    /// Download + install the update, then quit so the helper relaunches us.
+    func applyUpdate(_ info: UpdateInfo) {
+        guard let url = info.downloadURL else { return }
+        pendingUpdate = nil
+        showAbout = true            // show the downloading state
+        updateState = .downloading
+        Task {
+            do {
+                try await Updater.apply(downloadURL: url)
+                await MainActor.run { NSApp.terminate(nil) }
+            } catch {
+                await MainActor.run {
+                    self.updateState = .failed((error as? UpdaterError)?.errorDescription ?? error.localizedDescription)
+                }
+            }
+        }
+    }
 
     // MARK: - Detail navigation
 

@@ -40,6 +40,7 @@ date, and notes, with an **automatic roll-up progress bar** on the parent and
 | **Due dates** | Start + due dates; overdue shows red. |
 | **Markdown notes** | Each task has a Markdown notes body with a **Write / Preview** toggle. The detail panel saves and closes when you click outside it. |
 | **Light / Dark / System** | Appearance follows macOS by default; force Light or Dark from the sidebar **⋯** menu. |
+| **Auto-update** | On launch Kanpan checks GitHub Releases; if a newer version exists it offers to update in place (download → swap → relaunch). Also under **About Kanpan** (app menu or sidebar **⋯**) with a "Check for Updates" button. |
 | **Vault** | Obsidian-style: your data is a folder of `.md` files. Create, open, or switch vaults; reveal in Finder; reload from disk. |
 | **Search** | Filter the current board by title, notes, or label. |
 
@@ -47,7 +48,7 @@ date, and notes, with an **automatic roll-up progress bar** on the parent and
 
 ## Install
 
-1. Download / open `dist/Kanpan-1.1.0.dmg` (or the latest [release](https://github.com/enderphan94/kanpan/releases)).
+1. Download / open `dist/Kanpan-1.2.0.dmg` (or the latest [release](https://github.com/enderphan94/kanpan/releases)).
 2. Drag **Kanpan** onto **Applications**.
 3. **First launch:** right-click **Kanpan → Open → Open** (the app is unsigned,
    so Gatekeeper needs a one-time confirmation).

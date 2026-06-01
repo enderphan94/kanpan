@@ -129,6 +129,8 @@ struct SidebarView: View {
                     Button("Reload from Disk") { store.reload() }
                     Divider()
                     Button("Switch Vault…") { store.closeVault() }
+                    Divider()
+                    Button("About Kanpan…") { store.showAbout = true }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
