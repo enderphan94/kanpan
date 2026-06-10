@@ -479,7 +479,12 @@ final class AppStore: ObservableObject {
         Task {
             do {
                 try await Updater.apply(downloadURL: url)
-                await MainActor.run { NSApp.terminate(nil) }
+                // The detached helper is running; quit immediately so it can
+                // swap the bundle without waiting on a slow shutdown.
+                await MainActor.run {
+                    self.flushSaves()
+                    exit(0)
+                }
             } catch {
                 await MainActor.run {
                     self.updateState = .failed((error as? UpdaterError)?.errorDescription ?? error.localizedDescription)

@@ -103,32 +103,36 @@ enum Updater {
         let bundleURL = Bundle.main.bundleURL
         guard bundleURL.pathExtension == "app" else { throw UpdaterError.notABundle }
         guard !bundleURL.path.hasPrefix("/Volumes/") else { throw UpdaterError.runningFromDMG }
+        log("starting update from \(downloadURL.lastPathComponent)")
 
-        // 1. Download to a temp file.
-        let (tmp, _) = try await URLSession.shared.download(from: downloadURL)
+        // 1. Download, with a bounded timeout so a stalled network fails fast
+        //    instead of hanging the UI.
+        let cfg = URLSessionConfiguration.default
+        cfg.timeoutIntervalForRequest = 30
+        cfg.timeoutIntervalForResource = 120
+        let session = URLSession(configuration: cfg)
+        let (tmp, _) = try await session.download(from: downloadURL)
         let dmgPath = NSTemporaryDirectory() + "kanpan-update-\(UUID().uuidString).dmg"
         try? FileManager.default.removeItem(atPath: dmgPath)
         try FileManager.default.moveItem(atPath: tmp.path, toPath: dmgPath)
+        let bytes = (try? FileManager.default.attributesOfItem(atPath: dmgPath)[.size] as? Int) ?? nil
+        log("downloaded \(bytes ?? 0) bytes")
 
-        // 2. Mount it.
-        let mountOut = try runProcess("/usr/bin/hdiutil",
-                                      ["attach", dmgPath, "-nobrowse", "-readonly"])
-        var mountPoint: String?
-        for line in mountOut.split(separator: "\n") {
-            let cols = line.components(separatedBy: "\t")
-            if let last = cols.last?.trimmingCharacters(in: .whitespaces), last.hasPrefix("/Volumes/") {
-                mountPoint = last; break
-            }
+        // 2. Mount onto a private temp mountpoint so we never pollute /Volumes
+        //    (and never accumulate leftover mounts across attempts).
+        let mountDir = NSTemporaryDirectory() + "kanpan-mount-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: mountDir, withIntermediateDirectories: true)
+        _ = try runProcess("/usr/bin/hdiutil",
+                           ["attach", dmgPath, "-nobrowse", "-readonly", "-mountpoint", mountDir])
+        let srcApp = mountDir + "/Kanpan.app"
+        guard FileManager.default.fileExists(atPath: srcApp) else {
+            _ = try? runProcess("/usr/bin/hdiutil", ["detach", mountDir, "-quiet"])
+            throw UpdaterError.appNotInDMG
         }
-        guard let mount = mountPoint else { throw UpdaterError.mountFailed }
-        let srcApp = mount + "/Kanpan.app"
-        guard FileManager.default.fileExists(atPath: srcApp) else { throw UpdaterError.appNotInDMG }
+        log("mounted at \(mountDir)")
 
-        // 3. Write + spawn the detached helper.
-        let logDir = NSHomeDirectory() + "/Library/Application Support/Kanpan"
-        try? FileManager.default.createDirectory(atPath: logDir, withIntermediateDirectories: true)
-        let logFile = logDir + "/update.log"
-
+        // 3. Write + spawn the detached helper that swaps the bundle and relaunches.
+        let logFile = NSHomeDirectory() + "/Library/Application Support/Kanpan/update.log"
         let helperPath = NSTemporaryDirectory() + "kanpan-update-\(UUID().uuidString).sh"
         try helperScript.write(toFile: helperPath, atomically: true, encoding: .utf8)
         _ = try? runProcess("/bin/chmod", ["+x", helperPath])
@@ -136,8 +140,22 @@ enum Updater {
         let pid = String(ProcessInfo.processInfo.processIdentifier)
         let helper = Process()
         helper.executableURL = URL(fileURLWithPath: "/bin/bash")
-        helper.arguments = [helperPath, pid, srcApp, bundleURL.path, mount, dmgPath, logFile]
-        try helper.run()   // detached — survives our termination
+        helper.arguments = [helperPath, pid, srcApp, bundleURL.path, mountDir, dmgPath, logFile]
+        try helper.run()   // detached: survives our termination
+        log("spawned helper; quitting to install")
+    }
+
+    private static func log(_ message: String) {
+        let dir = NSHomeDirectory() + "/Library/Application Support/Kanpan"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        guard let data = "\(stamp) app: \(message)\n".data(using: .utf8) else { return }
+        let url = URL(fileURLWithPath: dir + "/update.log")
+        if let fh = try? FileHandle(forWritingTo: url) {
+            fh.seekToEndOfFile(); fh.write(data); try? fh.close()
+        } else {
+            try? data.write(to: url)
+        }
     }
 
     @discardableResult
@@ -159,41 +177,44 @@ enum Updater {
     /// relaunches. Logs to ~/Library/Application Support/Kanpan/update.log.
     private static let helperScript = """
     #!/bin/bash
-    set -eu
+    set -u
     PARENT_PID="$1"; SRC_APP="$2"; DST_APP="$3"; MOUNT_POINT="$4"; DMG_FILE="$5"; LOG_FILE="$6"
     exec >> "$LOG_FILE" 2>&1
-    echo "$(date '+%F %T') update: starting (parent=$PARENT_PID, src=$SRC_APP, dst=$DST_APP)"
+    echo "$(date '+%F %T') helper: starting (parent=$PARENT_PID)"
 
-    # 1. Wait up to 30s for the old Kanpan to quit.
-    for _ in $(seq 1 60); do
+    # 1. Wait briefly for the old Kanpan to quit, then force it so the swap
+    #    never stalls waiting on a slow shutdown.
+    for _ in $(seq 1 16); do
         kill -0 "$PARENT_PID" 2>/dev/null || break
         sleep 0.5
     done
+    kill -9 "$PARENT_PID" 2>/dev/null || true
+    echo "$(date '+%F %T') helper: parent gone, copying"
 
-    # 2. Stage the new copy beside the old one (same volume → atomic mv).
+    # 2. Stage the new copy beside the old one with ditto (handles app bundles).
     DST_DIR="$(dirname "$DST_APP")"
     DST_NAME="$(basename "$DST_APP" .app)"
     STAGE="$DST_DIR/$DST_NAME.new.app"
     BACKUP="$DST_DIR/$DST_NAME.old.app"
     rm -rf "$STAGE" "$BACKUP"
-    cp -R "$SRC_APP" "$STAGE"
-
-    # 3. Strip quarantine so Gatekeeper trusts the already-approved app.
+    ditto "$SRC_APP" "$STAGE"
     xattr -dr com.apple.quarantine "$STAGE" 2>/dev/null || true
+    echo "$(date '+%F %T') helper: copied, swapping"
 
-    # 4. Swap.
+    # 3. Swap (rename on the same volume is effectively atomic).
     [ -e "$DST_APP" ] && mv "$DST_APP" "$BACKUP"
     mv "$STAGE" "$DST_APP"
     ( rm -rf "$BACKUP" ) >/dev/null 2>&1 &
 
-    # 5. Detach + clean up.
+    # 4. Detach + clean up.
     hdiutil detach "$MOUNT_POINT" -quiet || true
+    rmdir "$MOUNT_POINT" 2>/dev/null || true
     rm -f "$DMG_FILE"
 
-    # 6. Relaunch, then self-delete.
-    echo "$(date '+%F %T') launching $DST_APP"
+    # 5. Relaunch, then self-delete.
+    echo "$(date '+%F %T') helper: launching $DST_APP"
     open -a "$DST_APP"
     rm -f "$0"
-    echo "$(date '+%F %T') update: done"
+    echo "$(date '+%F %T') helper: done"
     """
 }

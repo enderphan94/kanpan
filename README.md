@@ -49,7 +49,7 @@ macOS 14 (Sonoma) or later.
 
 ## Installation
 
-1. Download the latest build from the [Releases page](https://github.com/enderphan94/kanpan/releases), or open `dist/Kanpan-1.3.0.dmg`.
+1. Download the latest build from the [Releases page](https://github.com/enderphan94/kanpan/releases), or open `dist/Kanpan-1.3.1.dmg`.
 2. Drag Kanpan into the Applications folder.
 3. On first launch, right-click Kanpan, choose Open, and confirm. The app is
    ad-hoc signed rather than notarized, so macOS asks for this once.

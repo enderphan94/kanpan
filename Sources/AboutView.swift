@@ -84,19 +84,24 @@ struct AboutView: View {
         case .downloading:
             VStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Downloading update…").foregroundStyle(.secondary)
-                Text("Kanpan will restart to finish installing.")
+                Text("Downloading and installing…").foregroundStyle(.secondary)
+                Text("Kanpan will quit and reopen on its own in a moment.")
                     .font(.caption2).foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
             }
 
         case .failed(let message):
             VStack(spacing: 6) {
-                Label("Couldn't check for updates", systemImage: "exclamationmark.triangle.fill")
+                Label("Couldn't update", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                 Text(message).font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).lineLimit(3)
-                Button("Try Again") { store.checkForUpdates() }
-                    .buttonStyle(.bordered).controlSize(.small)
+                HStack(spacing: 10) {
+                    Button("Try Again") { store.checkForUpdates() }
+                        .buttonStyle(.bordered).controlSize(.small)
+                    Button("Download in Browser") { NSWorkspace.shared.open(releasesURL) }
+                        .buttonStyle(.bordered).controlSize(.small)
+                }
             }
         }
     }
