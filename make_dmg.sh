@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 APP_NAME="Kanpan"
-VERSION="1.2.0"
+VERSION="1.3.0"
 APP="dist/${APP_NAME}.app"
 DMG="dist/${APP_NAME}-${VERSION}.dmg"
 

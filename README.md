@@ -33,7 +33,7 @@ approach taken by Asana, Linear, and Notion. The full write-up is in
 | Status columns | Not Started, In Progress, On Hold, and Completed, each with a distinct, muted color. Marking a task done moves it to the Completed column. |
 | Drag to change status | Drag a card between columns to set its status, or drop it onto another card to reorder within a column. |
 | One-click complete | Each card has a checkmark, so you can complete a task without opening it. |
-| Sub-projects | Open a card to add sub-tasks, each with its own status, due date, and notes. The parent shows a live progress count. You can drill into any sub-task or promote it to a top-level card. |
+| Sub-projects | Open a card to add sub-tasks, each with its own status, due date, and notes. The parent shows a live progress count. Drag the handle to reorder sub-tasks, drill into any sub-task, or promote it to a top-level card. |
 | Priority | Urgent, Important, Medium, and Low. Only above-normal priorities show a flag, which keeps boards easy to scan. |
 | Labels | Colored, multi-select labels with stable, automatically assigned colors. |
 | Due dates | Optional start and due dates. Overdue tasks appear in red. |
@@ -49,7 +49,7 @@ macOS 14 (Sonoma) or later.
 
 ## Installation
 
-1. Download the latest build from the [Releases page](https://github.com/enderphan94/kanpan/releases), or open `dist/Kanpan-1.2.0.dmg`.
+1. Download the latest build from the [Releases page](https://github.com/enderphan94/kanpan/releases), or open `dist/Kanpan-1.3.0.dmg`.
 2. Drag Kanpan into the Applications folder.
 3. On first launch, right-click Kanpan, choose Open, and confirm. The app is
    ad-hoc signed rather than notarized, so macOS asks for this once.

@@ -413,6 +413,22 @@ final class AppStore: ObservableObject {
         saveNow(oldParent)     // rewrite the old parent without this sub-task
     }
 
+    /// Reorder a sub-task within its parent, inserting it before `beforeID`
+    /// (or at the end when nil). Renumbers the siblings and rewrites the
+    /// parent's project file once.
+    func reorderSubtask(_ id: String, before beforeID: String?) {
+        guard let moved = task(id), let parentID = moved.parentID else { return }
+        var siblings = tasks
+            .filter { $0.parentID == parentID && $0.id != id }
+            .sorted { $0.order < $1.order }
+        let insertAt = beforeID.flatMap { b in siblings.firstIndex { $0.id == b } } ?? siblings.count
+        siblings.insert(moved, at: insertAt)
+        for (i, s) in siblings.enumerated() where s.order != Double(i) {
+            if let idx = tasks.firstIndex(where: { $0.id == s.id }) { tasks[idx].order = Double(i) }
+        }
+        saveNow(parentID)
+    }
+
     // MARK: - Menu intents
 
     func requestNewTask() {

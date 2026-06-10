@@ -182,6 +182,11 @@ private struct DetailBody: View {
                 }
             }
             AddSubtaskField(parent: task)
+                .dropDestination(for: String.self) { items, _ in
+                    guard let dragged = items.first else { return false }
+                    store.reorderSubtask(dragged, before: nil)   // move to the end
+                    return true
+                }
         }
         .padding(14)
         .background(Color.primary.opacity(0.03))
@@ -217,10 +222,17 @@ private struct DetailBody: View {
 private struct SubtaskRow: View {
     @EnvironmentObject var store: AppStore
     let sub: KTask
+    @State private var dropTargeted = false
     private var isDone: Bool { sub.status == .completed }
 
     var body: some View {
         HStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .draggable(sub.id)
+                .help("Drag to reorder")
+
             Button {
                 store.setStatus(sub.id, isDone ? .notStarted : .completed)
             } label: {
@@ -247,6 +259,16 @@ private struct SubtaskRow: View {
             .help("Open sub-task")
         }
         .padding(.vertical, 5)
+        .overlay(alignment: .top) {
+            if dropTargeted {
+                Rectangle().fill(Color.accentColor).frame(height: 2)
+            }
+        }
+        .dropDestination(for: String.self) { items, _ in
+            guard let dragged = items.first, dragged != sub.id else { return false }
+            store.reorderSubtask(dragged, before: sub.id)
+            return true
+        } isTargeted: { dropTargeted = $0 }
         .contextMenu {
             Button("Open") { store.drillInto(sub.id) }
             Menu("Status") {
