@@ -28,8 +28,7 @@ private struct DetailBody: View {
         store.task(taskID) ?? KTask.new(boardID: "", status: .notStarted, title: "", order: 0)
     }
     private var bind: Binding<KTask> { store.binding(taskID) }
-    private var subtasks: [KTask] { store.subtasks(of: taskID) }
-    private var isTopLevel: Bool { task.parentID == nil }
+    private var children: [KTask] { store.subtasks(of: taskID) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,7 +40,7 @@ private struct DetailBody: View {
                     fieldsRow
                     LabelEditor(labels: bind.labels)
                     notesSection
-                    if isTopLevel { subtaskSection }
+                    if store.canHaveChildren(taskID) { childrenSection }
                     metaFooter
                 }
                 .padding(20)
@@ -152,13 +151,17 @@ private struct DetailBody: View {
         }
     }
 
-    // MARK: Sub-tasks
+    // MARK: Children (sub-tasks of a project, or works of a sub-task)
 
-    private var subtaskSection: some View {
-        let p = store.progress(of: taskID)
+    private var childrenSection: some View {
+        // The progress bar counts everything below this task (sub-tasks + works)
+        // so works contribute to the whole-task progress.
+        let p = store.deepProgress(of: taskID)
+        let isProject = store.level(of: taskID) == 0
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("SUB-TASKS").font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
+                Text(isProject ? "SUB-TASKS" : "WORK")
+                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
                 Spacer()
                 if p.total > 0 {
                     Text("\(p.done) of \(p.total) done")
@@ -176,12 +179,12 @@ private struct DetailBody: View {
                 .frame(height: 6)
             }
             VStack(spacing: 2) {
-                ForEach(subtasks) { sub in
-                    SubtaskRow(sub: sub)
-                    if sub.id != subtasks.last?.id { Divider() }
+                ForEach(children) { child in
+                    ItemRow(item: child)
+                    if child.id != children.last?.id { Divider() }
                 }
             }
-            AddSubtaskField(parent: task)
+            AddChildField(parent: task, placeholder: isProject ? "Add a sub-task" : "Add work")
                 .dropDestination(for: String.self) { items, _ in
                     guard let dragged = items.first else { return false }
                     store.reorderSubtask(dragged, before: nil)   // move to the end
@@ -201,7 +204,7 @@ private struct DetailBody: View {
             }
             .font(.caption2).foregroundStyle(.tertiary)
             Spacer()
-            if !isTopLevel {
+            if store.level(of: taskID) == 1 {
                 Button {
                     store.promoteToTopLevel(taskID)
                     store.popDetail()
@@ -217,80 +220,127 @@ private struct DetailBody: View {
     }
 }
 
-// MARK: - Sub-task row
+// MARK: - Item row (a sub-task, or a work nested under a sub-task)
 
-private struct SubtaskRow: View {
+/// One row in a children list. A sub-task can expand to show its works inline
+/// (works are themselves `ItemRow`s, but cannot expand further).
+private struct ItemRow: View {
     @EnvironmentObject var store: AppStore
-    let sub: KTask
+    let item: KTask
     @State private var dropTargeted = false
-    private var isDone: Bool { sub.status == .completed }
+
+    private var isDone: Bool { item.status == .completed }
+    private var canExpand: Bool { store.canHaveChildren(item.id) }   // a sub-task holds works
+    private var works: [KTask] { store.subtasks(of: item.id) }
+    private var expanded: Bool { store.isExpanded(item.id) }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            row
+            if canExpand && expanded {
+                worksList.padding(.leading, 22)   // indent works under the sub-task
+            }
+        }
+    }
+
+    private var row: some View {
         HStack(spacing: 8) {
             Image(systemName: "line.3.horizontal")
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-                .draggable(sub.id)
+                .font(.system(size: 11)).foregroundStyle(.tertiary)
+                .draggable(item.id)
                 .help("Drag to reorder")
 
             Button {
-                store.setStatus(sub.id, isDone ? .notStarted : .completed)
+                store.setStatus(item.id, isDone ? .notStarted : .completed)
             } label: {
                 Image(systemName: isDone ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isDone ? Color.green : Color.secondary.opacity(0.55))
             }
             .buttonStyle(.plain)
 
-            Circle().fill(sub.status.color).frame(width: 7, height: 7)
+            Circle().fill(item.status.color).frame(width: 7, height: 7)
 
-            TextField("Sub-task", text: store.binding(sub.id).title)
+            TextField("Title", text: store.binding(item.id).title)
                 .textFieldStyle(.plain)
                 .strikethrough(isDone, color: .secondary)
                 .foregroundStyle(isDone ? .secondary : .primary)
 
             Spacer(minLength: 6)
 
-            if let due = sub.due { DueChip(due: due, overdue: sub.isOverdue) }
+            if let due = item.due { DueChip(due: due, overdue: item.isOverdue) }
 
-            Button { store.drillInto(sub.id) } label: {
+            if canExpand {
+                let p = store.progress(of: item.id)
+                Button { store.toggleExpanded(item.id) } label: {
+                    HStack(spacing: 4) {
+                        if p.total > 0 {
+                            Image(systemName: "checklist").font(.system(size: 10))
+                            Text("\(p.done)/\(p.total)").font(.system(size: 10, weight: .medium))
+                        }
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(expanded ? "Hide work" : "Show work")
+            }
+
+            Button { store.drillInto(item.id) } label: {
                 Image(systemName: "arrow.up.forward.square").foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Open sub-task")
+            .help("Open")
         }
         .padding(.vertical, 5)
         .overlay(alignment: .top) {
-            if dropTargeted {
-                Rectangle().fill(Color.accentColor).frame(height: 2)
-            }
+            if dropTargeted { Rectangle().fill(Color.accentColor).frame(height: 2) }
         }
         .dropDestination(for: String.self) { items, _ in
-            guard let dragged = items.first, dragged != sub.id else { return false }
-            store.reorderSubtask(dragged, before: sub.id)
+            guard let dragged = items.first, dragged != item.id else { return false }
+            store.reorderSubtask(dragged, before: item.id)
             return true
         } isTargeted: { dropTargeted = $0 }
         .contextMenu {
-            Button("Open") { store.drillInto(sub.id) }
+            Button("Open") { store.drillInto(item.id) }
             Menu("Status") {
-                ForEach(TaskStatus.allCases) { s in Button(s.title) { store.setStatus(sub.id, s) } }
+                ForEach(TaskStatus.allCases) { s in Button(s.title) { store.setStatus(item.id, s) } }
             }
-            Button("Promote to Top-level Task") { store.promoteToTopLevel(sub.id) }
+            if store.level(of: item.id) == 1 {
+                Button("Promote to Top-level Task") { store.promoteToTopLevel(item.id) }
+            }
             Divider()
-            Button("Delete", role: .destructive) { store.delete(sub.id) }
+            Button("Delete", role: .destructive) { store.delete(item.id) }
+        }
+    }
+
+    private var worksList: some View {
+        VStack(spacing: 2) {
+            ForEach(works) { work in
+                ItemRow(item: work)
+                if work.id != works.last?.id { Divider() }
+            }
+            AddChildField(parent: item, placeholder: "Add work")
+                .dropDestination(for: String.self) { items, _ in
+                    guard let dragged = items.first else { return false }
+                    store.reorderSubtask(dragged, before: nil)   // move to the end
+                    return true
+                }
         }
     }
 }
 
-private struct AddSubtaskField: View {
+private struct AddChildField: View {
     @EnvironmentObject var store: AppStore
     let parent: KTask
+    let placeholder: String
     @State private var text = ""
     @FocusState private var focused: Bool
 
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "plus.circle.fill").foregroundStyle(.secondary)
-            TextField("Add a sub-task", text: $text)
+            TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
                 .focused($focused)
                 .onSubmit(add)

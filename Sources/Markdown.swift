@@ -37,6 +37,7 @@ import Foundation
 enum MarkdownFile {
 
     static let subtaskDelimiter = "<!-- kanpan:subtask -->"
+    static let workDelimiter = "<!-- kanpan:work -->"
 
     // MARK: Date formats
     private static let dayFormatter: DateFormatter = {
@@ -59,22 +60,35 @@ enum MarkdownFile {
     // MARK: - Serialize
 
     /// Serialize a project (parent + its sub-tasks) into one markdown document.
-    static func serializeProject(parent: KTask, subtasks: [KTask]) -> String {
+    /// Serialize a project (a top-level task) plus all of its descendants
+    /// (`items` = its sub-tasks and the works nested under those sub-tasks).
+    /// Sub-tasks are written in order, each followed by its works.
+    static func serializeProject(parent: KTask, items: [KTask]) -> String {
         var blocks: [String] = []
         blocks.append("---\n" + fieldLines(parent) + "---")
 
         let parentNotes = trimEdges(parent.notes)
         if !parentNotes.isEmpty { blocks.append(parentNotes) }
 
-        for sub in subtasks.sorted(by: { $0.order < $1.order }) {
-            // fieldLines ends with a newline; drop it so blocks join cleanly.
-            var block = subtaskDelimiter + "\n" + fieldLines(sub)
-            if block.hasSuffix("\n") { block.removeLast() }
-            let notes = trimEdges(sub.notes)
-            if !notes.isEmpty { block += "\n\n" + notes }
-            blocks.append(block)
+        let subtasks = items.filter { $0.parentID == parent.id }.sorted { $0.order < $1.order }
+        for sub in subtasks {
+            blocks.append(block(delimiter: subtaskDelimiter, fields: fieldLines(sub), notes: sub.notes))
+            let works = items.filter { $0.parentID == sub.id }.sorted { $0.order < $1.order }
+            for work in works {
+                let fields = fieldLines(work) + "parent: \(work.parentID ?? sub.id)\n"
+                blocks.append(block(delimiter: workDelimiter, fields: fields, notes: work.notes))
+            }
         }
         return blocks.joined(separator: "\n\n") + "\n"
+    }
+
+    private static func block(delimiter: String, fields: String, notes: String) -> String {
+        // fieldLines ends with a newline; drop it so blocks join cleanly.
+        var b = delimiter + "\n" + fields
+        if b.hasSuffix("\n") { b.removeLast() }
+        let n = trimEdges(notes)
+        if !n.isEmpty { b += "\n\n" + n }
+        return b
     }
 
     /// The scalar `key: value` lines for one task (no `---`, no `parent:` — the
@@ -130,15 +144,15 @@ enum MarkdownFile {
         var parent = taskFromFields(fieldsFromLines(fmLines), fallbackTitle: stem,
                                     boardID: boardID, relPath: relPath)
 
-        // Split the body into the parent notes + one segment per sub-task,
-        // ignoring delimiter-looking lines inside fenced code blocks.
+        // Split the body into the parent notes + one segment per sub-task or
+        // work, ignoring delimiter-looking lines inside fenced code blocks.
         let bodyLines = Array(lines[bodyStart...])
         var segments: [[String]] = [[]]
         var inFence = false
         for line in bodyLines {
             let t = line.trimmingCharacters(in: .whitespaces)
             if t.hasPrefix("```") || t.hasPrefix("~~~") { inFence.toggle() }
-            if !inFence && t == subtaskDelimiter {
+            if !inFence && (t == subtaskDelimiter || t == workDelimiter) {
                 segments.append([])
             } else {
                 segments[segments.count - 1].append(line)
@@ -157,11 +171,13 @@ enum MarkdownFile {
                 if !line.contains(":") { break }
                 fieldBlock.append(line); j += 1
             }
-            var sub = taskFromFields(fieldsFromLines(fieldBlock), fallbackTitle: "Sub-task",
-                                     boardID: boardID, relPath: relPath)
-            sub.parentID = parent.id
-            sub.notes = trimEdges(Array(seg[j...]).joined(separator: "\n"))
-            result.append(sub)
+            // A work block carries `parent:` (its sub-task id); a sub-task block
+            // has none, so it belongs to the project root.
+            var item = taskFromFields(fieldsFromLines(fieldBlock), fallbackTitle: "Sub-task",
+                                      boardID: boardID, relPath: relPath)
+            if item.parentID == nil { item.parentID = parent.id }
+            item.notes = trimEdges(Array(seg[j...]).joined(separator: "\n"))
+            result.append(item)
         }
         return result
     }

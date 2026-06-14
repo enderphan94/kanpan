@@ -7,7 +7,7 @@ struct TaskCardView: View {
     let task: KTask
     @State private var hovering = false
 
-    private var progress: (done: Int, total: Int) { store.progress(of: task.id) }
+    private var progress: (done: Int, total: Int) { store.deepProgress(of: task.id) }
     private var isDone: Bool { task.status == .completed }
 
     var body: some View {

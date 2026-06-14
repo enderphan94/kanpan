@@ -68,6 +68,9 @@ final class AppStore: ObservableObject {
     @Published var pendingUpdate: UpdateInfo? = nil   // non-nil → show launch prompt
     private var didLaunchUpdateCheck = false
 
+    /// Sub-tasks whose work list is collapsed in the detail view (default: expanded).
+    @Published var collapsedItems: Set<String> = []
+
     private let vaultKey = "KanpanVaultPath"
     private let viewModeKey = "KanpanViewMode"
     private let appearanceKey = "KanpanAppearance"
@@ -237,10 +240,40 @@ final class AppStore: ObservableObject {
         tasks.filter { $0.parentID == parentID }.sorted { $0.order < $1.order }
     }
 
-    /// (completed, total) over a parent's sub-tasks — drives the roll-up bar.
+    /// (completed, total) over a parent's direct children.
     func progress(of parentID: String) -> (done: Int, total: Int) {
         let subs = tasks.filter { $0.parentID == parentID }
         return (subs.filter { $0.status == .completed }.count, subs.count)
+    }
+
+    /// Every descendant of an item: its children and (for a task) the works
+    /// nested under its sub-tasks.
+    func descendants(of id: String) -> [KTask] {
+        let kids = tasks.filter { $0.parentID == id }
+        return kids + kids.flatMap { kid in tasks.filter { $0.parentID == kid.id } }
+    }
+
+    /// (completed, total) over every descendant — drives the whole-task progress
+    /// bar, so works count toward it alongside sub-tasks.
+    func deepProgress(of id: String) -> (done: Int, total: Int) {
+        let all = descendants(of: id)
+        return (all.filter { $0.status == .completed }.count, all.count)
+    }
+
+    /// 0 = top-level task, 1 = sub-task, 2 = work.
+    func level(of id: String) -> Int {
+        guard let parentID = task(id)?.parentID else { return 0 }
+        return task(parentID)?.parentID == nil ? 1 : 2
+    }
+
+    /// Works (level 2) are the deepest; only tasks and sub-tasks take children.
+    func canHaveChildren(_ id: String) -> Bool { level(of: id) < 2 }
+
+    /// The top-level task whose `.md` file this item is stored in.
+    func projectRoot(of id: String) -> String {
+        var current = id
+        while let parentID = task(current)?.parentID { current = parentID }
+        return current
     }
 
     private func matchesSearch(_ t: KTask) -> Bool {
@@ -255,11 +288,18 @@ final class AppStore: ObservableObject {
 
     @discardableResult
     func addTask(board: String, status: TaskStatus, title: String, parentID: String? = nil) -> KTask {
-        let peers = tasks.filter { $0.boardID == board && $0.parentID == parentID && $0.status == status }
+        // Top-level cards order within their status column; nested items
+        // (sub-tasks, works) order within their single sibling list.
+        let peers: [KTask]
+        if let parentID {
+            peers = tasks.filter { $0.parentID == parentID }
+        } else {
+            peers = tasks.filter { $0.boardID == board && $0.parentID == nil && $0.status == status }
+        }
         let nextOrder = (peers.map { $0.order }.max() ?? 0) + 1
         let t = KTask.new(boardID: board, status: status, title: title, parentID: parentID, order: nextOrder)
         tasks.append(t)
-        saveNow(parentID ?? t.id)          // write the project file (creates or rewrites)
+        saveNow(projectRoot(of: t.id))     // write the project file (creates or rewrites)
         return task(t.id) ?? t
     }
 
@@ -274,7 +314,7 @@ final class AppStore: ObservableObject {
         } else {
             tasks.append(task)
         }
-        let root = task.parentID ?? task.id
+        let root = projectRoot(of: task.id)
         if immediate { saveNow(root) } else { scheduleSave(root) }
     }
 
@@ -295,10 +335,10 @@ final class AppStore: ObservableObject {
         guard let v = vault,
               let parent = tasks.first(where: { $0.id == rootID && $0.parentID == nil })
         else { return }
-        let subs = tasks.filter { $0.parentID == rootID }
-        guard let (np, nsubs) = try? v.writeProject(parent: parent, subtasks: subs) else { return }
+        let items = descendants(of: rootID)
+        guard let (np, nitems) = try? v.writeProject(parent: parent, items: items) else { return }
         setRelPath(np.id, np.relPath)
-        for ns in nsubs { setRelPath(ns.id, ns.relPath) }
+        for ni in nitems { setRelPath(ni.id, ni.relPath) }
     }
 
     private func setRelPath(_ id: String, _ rel: String) {
@@ -363,16 +403,19 @@ final class AppStore: ObservableObject {
 
     func delete(_ id: String) {
         guard let t = task(id) else { return }
-        if let parentID = t.parentID {
-            // A sub-task lives inside its parent's file: drop it and rewrite.
-            tasks.removeAll { $0.id == id }
-            saveNow(parentID)
-        } else {
-            // A top-level project owns its file (and all its sub-tasks).
+        // Remove the whole subtree (a sub-task takes its works with it).
+        let subtree = Set([id] + descendants(of: id).map { $0.id })
+        if t.parentID == nil {
+            // A top-level project owns its file.
             vault?.deleteFile(relPath: t.relPath)
-            tasks.removeAll { $0.id == id || $0.parentID == id }
+            tasks.removeAll { subtree.contains($0.id) }
+        } else {
+            // A sub-task or work lives inside the project's file: drop it and rewrite.
+            let root = projectRoot(of: id)
+            tasks.removeAll { subtree.contains($0.id) }
+            saveNow(root)
         }
-        detailStack.removeAll { $0 == id }
+        detailStack.removeAll { subtree.contains($0) }
     }
 
     /// Move a card to a status column, optionally inserting before another card.
@@ -426,7 +469,7 @@ final class AppStore: ObservableObject {
         for (i, s) in siblings.enumerated() where s.order != Double(i) {
             if let idx = tasks.firstIndex(where: { $0.id == s.id }) { tasks[idx].order = Double(i) }
         }
-        saveNow(parentID)
+        saveNow(projectRoot(of: id))   // persist the owning project's file
     }
 
     // MARK: - Menu intents
@@ -494,6 +537,11 @@ final class AppStore: ObservableObject {
     }
 
     // MARK: - Detail navigation
+
+    func isExpanded(_ id: String) -> Bool { !collapsedItems.contains(id) }
+    func toggleExpanded(_ id: String) {
+        if collapsedItems.contains(id) { collapsedItems.remove(id) } else { collapsedItems.insert(id) }
+    }
 
     func openDetail(_ id: String) { detailStack = [id] }
     func drillInto(_ id: String) { detailStack.append(id) }

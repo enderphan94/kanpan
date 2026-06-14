@@ -121,11 +121,11 @@ struct Vault {
         return files
     }
 
-    /// Write a whole project (parent + its sub-tasks) to one `.md` file,
-    /// creating or renaming it based on the parent's title. Returns the parent
-    /// and sub-tasks with their `relPath` updated to the project file.
+    /// Write a whole project (parent + all of its descendants: sub-tasks and
+    /// their works) to one `.md` file, creating or renaming it based on the
+    /// parent's title. Returns the parent and items with their `relPath` updated.
     @discardableResult
-    func writeProject(parent: KTask, subtasks: [KTask]) throws -> (KTask, [KTask]) {
+    func writeProject(parent: KTask, items: [KTask]) throws -> (KTask, [KTask]) {
         var parent = parent
         let boardURL = root.appendingPathComponent(parent.boardID, isDirectory: true)
         try fm.createDirectory(at: boardURL, withIntermediateDirectories: true)
@@ -150,12 +150,12 @@ struct Vault {
 
         let rel = relativePath(of: destURL)
         parent.relPath = rel
-        var subs = subtasks
-        for i in subs.indices { subs[i].relPath = rel }
+        var descendants = items
+        for i in descendants.indices { descendants[i].relPath = rel }
 
-        let content = MarkdownFile.serializeProject(parent: parent, subtasks: subs)
+        let content = MarkdownFile.serializeProject(parent: parent, items: descendants)
         try content.data(using: .utf8)?.write(to: destURL, options: .atomic)
-        return (parent, subs)
+        return (parent, descendants)
     }
 
     /// Delete a project file by its vault-relative path.

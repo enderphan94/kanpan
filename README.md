@@ -34,6 +34,7 @@ approach taken by Asana, Linear, and Notion. The full write-up is in
 | Drag to change status | Drag a card between columns to set its status, or drop it onto another card to reorder within a column. |
 | One-click complete | Each card has a checkmark, so you can complete a task without opening it. |
 | Sub-projects | Open a card to add sub-tasks, each with its own status, due date, and notes. The parent shows a live progress count. Drag the handle to reorder sub-tasks, drill into any sub-task, or promote it to a top-level card. |
+| Works | Each sub-task can hold its own list of "works" (a third level). Works are added, completed, and reordered like sub-tasks, shown under their sub-task with a show/hide toggle, and counted in the task's progress bar. |
 | Priority | Urgent, Important, Medium, and Low. Only above-normal priorities show a flag, which keeps boards easy to scan. |
 | Labels | Colored, multi-select labels with stable, automatically assigned colors. |
 | Due dates | Optional start and due dates. Overdue tasks appear in red. |
@@ -49,7 +50,7 @@ macOS 14 (Sonoma) or later.
 
 ## Installation
 
-1. Download the latest build from the [Releases page](https://github.com/enderphan94/kanpan/releases), or open `dist/Kanpan-1.3.1.dmg`.
+1. Download the latest build from the [Releases page](https://github.com/enderphan94/kanpan/releases), or open `dist/Kanpan-1.4.0.dmg`.
 2. Drag Kanpan into the Applications folder.
 3. On first launch, right-click Kanpan, choose Open, and confirm. The app is
    ad-hoc signed rather than notarized, so macOS asks for this once.
@@ -105,9 +106,11 @@ A few details worth knowing:
 
 - Identity is the `id` field, so renaming a project (and its file) never breaks
   anything.
-- Sub-tasks live inside the parent file, one block each, and nesting is limited
-  to a single level by design. The HTML comment is hidden in Obsidian's reading
-  view, while the notes render normally.
+- Sub-tasks live inside the parent file, one block each. The HTML comment is
+  hidden in Obsidian's reading view, while the notes render normally.
+- Works are a third level, nested under a sub-task. They use a
+  `<!-- kanpan:work -->` block carrying `parent: <sub-task id>`, stored in the
+  same project file.
 - A plain `.md` file with no front matter is still imported as a project, titled
   after its filename, so an existing vault remains usable.
 - Opening a vault created by an older version converts it to the single-file
